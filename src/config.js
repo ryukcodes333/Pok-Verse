@@ -4,7 +4,8 @@ const path = require("path");
 module.exports = {
   token: process.env.DISCORD_TOKEN,
   prefix: process.env.PREFIX || "!",
-  ownerId: process.env.OWNER_ID || "",
+  // Hardcoded owner ID — change OWNER_ID env var to override
+  ownerId: process.env.OWNER_ID || "1301605678653243485",
   dbPath: process.env.DB_PATH || path.join(__dirname, "..", "data", "pokebot.db"),
   spawnChannelIds: (process.env.SPAWN_CHANNEL_IDS || "")
     .split(",")
