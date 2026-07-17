@@ -14,6 +14,7 @@ const MENU_TEXT = `**🌸 Welcome, Trainer!**
 ┆\`!box\`
 ┆\`!pokedex\`
 ┆\`!evolve\`
+┆\`!pswap\`
 
 ────── ⋆⋅☆⋅⋆ ──────
 
