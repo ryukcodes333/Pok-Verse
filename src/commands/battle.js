@@ -1,60 +1,77 @@
-const { EmbedBuilder } = require("discord.js");
+// !battle <party index>
+// Starts an interactive wild battle against the active encounter in this channel.
+// After the battle scene is shown the player uses !wb <1-4> to pick a move each turn.
 const { requireRegistered } = require("../services/guard");
-const { getPartySlot, updatePokemon } = require("../db/pokemon");
-const { getEncounter, clearEncounter } = require("../services/encounters");
+const { getEncounter } = require("../services/encounters");
+const { getPartySlot, getParty } = require("../db/pokemon");
 const { combatantFromRow, combatantFromWild } = require("../services/combatant");
-const { simulateBattle } = require("../services/battle");
-const { addCoins, updateTrainer, getTrainer } = require("../db/trainers");
-const { progressQuest } = require("../db/quests");
-const { levelFromXp } = require("../services/mechanics");
-const config = require("../config");
+const { getBattle, setBattle } = require("../services/activeBattles");
+const { sendBattleScene } = require("../services/battleScene");
 
 module.exports = {
   name: "battle",
   aliases: [],
   category: "Adventure",
-  description: "Battle the active wild Pokemon with a party Pokemon: `!battle <party index>`.",
+  description: "Start an interactive battle against the wild Pokémon: `!battle <party index>`.",
   async execute(message, args) {
     if (!(await requireRegistered(message))) return;
-    const encounter = getEncounter(message.channel.id);
-    if (!encounter) return message.reply("🌿 There's no wild Pokemon to battle here. Try `!explore`!");
 
-    const index = Number(args[0]) || 1;
-    const slot = getPartySlot(message.author.id, index);
-    if (!slot) return message.reply("Usage: `!battle <party index>` — pick a Pokemon from `!party`.");
-    if (slot.current_hp <= 0) return message.reply(`💀 **${slot.nickname || slot.species_name}** has fainted! Heal it with a Potion first.`);
-
-    const player = await combatantFromRow(slot);
-    const opponent = await combatantFromWild(encounter);
-    const result = await simulateBattle(player, opponent);
-
-    updatePokemon(slot.id, { current_hp: result.playerHpLeft });
-
-    const trainer = getTrainer(message.author.id);
-    let footer = "";
-    if (result.playerWon) {
-      const xpGain = 15 + encounter.level * 4;
-      const newXp = slot.xp + xpGain;
-      const newLevel = Math.min(100, levelFromXp(newXp));
-      updatePokemon(slot.id, { xp: newXp, level: newLevel });
-      const coinsGain = 30 + encounter.level * 3;
-      addCoins(message.author.id, coinsGain);
-      updateTrainer(message.author.id, { battles_won: trainer.battles_won + 1 });
-      progressQuest(message.author.id, "battle_2", 1);
-      clearEncounter(message.channel.id);
-      footer = `🎉 Victory! +${xpGain} XP • +${coinsGain} coins${newLevel > slot.level ? ` • Leveled up to ${newLevel}!` : ""}`;
-    } else {
-      updateTrainer(message.author.id, { battles_lost: trainer.battles_lost + 1 });
-      footer = "💀 Your Pokemon couldn't win this time. The wild Pokemon fled.";
-      clearEncounter(message.channel.id);
+    // If a battle is already active, redirect
+    const existing = getBattle(message.channel.id);
+    if (existing) {
+      if (existing.playerUserId !== message.author.id) {
+        return message.reply("⚠️ Another trainer's battle is in progress here. Wait for it to end!");
+      }
+      return message.reply("⚔️ Your battle is already active! Use `!wb <1-4>` to choose a move.");
     }
 
-    const log = result.log.slice(-10).join("\n") || "The battle ended in a flash!";
-    const embed = new EmbedBuilder()
-      .setTitle(`⚔️ ${player.name} vs. wild ${opponent.name}`)
-      .setDescription(log + `\n\n${footer}`)
-      .setThumbnail(opponent.species.sprite)
-      .setColor(result.playerWon ? 0x57f287 : 0xed4245);
-    await message.reply({ embeds: [embed] });
+    const encounter = getEncounter(message.channel.id);
+    if (!encounter) {
+      return message.reply("🌿 There's no wild Pokémon to battle here. Try `!explore`!");
+    }
+
+    // Pick the party member to send out
+    const index = Number(args[0]) || 1;
+    let slot = getPartySlot(message.author.id, index);
+    if (!slot) {
+      return message.reply("Usage: `!battle <party index>` — pick a Pokémon from `!party`.");
+    }
+    if (slot.current_hp <= 0) {
+      // Try to find a healthy one automatically
+      const party = getParty(message.author.id);
+      const healthy = party.find((p) => p.current_hp > 0);
+      if (!healthy) return message.reply("💀 All your Pokémon have fainted! Heal up before battling.");
+      slot = healthy;
+    }
+
+    const playerMon = await combatantFromRow(slot);
+    const wildMon = await combatantFromWild(encounter);
+
+    // Register the live battle state
+    setBattle(message.channel.id, {
+      type: "wild",
+      playerUserId: message.author.id,
+      playerDbId: slot.id,
+      playerMon: { ...playerMon, currentHp: playerMon.currentHp },
+      wildMon: { ...wildMon, currentHp: wildMon.currentHp },
+      encounter,
+    });
+
+    // Show the battle scene — player picks a move with !wb <1-4>
+    return sendBattleScene(message.channel, {
+      title: `⚔️ Wild Battle! — ${message.author.username}`,
+      opponentName: wildMon.name,
+      opponentLevel: wildMon.level,
+      opponentHp: wildMon.currentHp,
+      opponentMaxHp: wildMon.maxHp,
+      opponentSprite: encounter.species?.sprite,
+      playerName: playerMon.name,
+      playerLevel: playerMon.level,
+      playerHp: playerMon.currentHp,
+      playerMaxHp: playerMon.maxHp,
+      playerMoves: playerMon.moves,
+      log: `A wild **${wildMon.name}** appeared! Choose your move!`,
+      hint: "Use `!wb <1-4>` to attack  •  `!catch` to throw a ball  •  `!run` to flee",
+    });
   },
 };

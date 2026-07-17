@@ -3,6 +3,7 @@ const { requireRegistered } = require("../services/guard");
 const { getParty, updatePokemon } = require("../db/pokemon");
 const { getTrainer, addBadge, addCoins, updateTrainer, getBadges } = require("../db/trainers");
 const { GYM_LEADERS, findGym } = require("../data/gyms");
+const { typeEmoji } = require("../data/typeEmojis");
 const { getSpecies } = require("../services/pokeapi");
 const { combatantFromRow, combatantFromWild } = require("../services/combatant");
 const { simulateBattle } = require("../services/battle");
@@ -16,22 +17,62 @@ const {
 } = require("../services/mechanics");
 const config = require("../config");
 
+function cap(s) {
+  if (!s) return s;
+  return String(s).split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
+function gymStatus(gym, badges, index) {
+  if (badges.includes(gym.badge)) return "✅ Cleared";
+  // Gym is available if it's the first one or the previous gym is cleared
+  if (index === 0) return "🟢 Available";
+  const prev = GYM_LEADERS[index - 1];
+  if (badges.includes(prev.badge)) return "🟢 Available";
+  return "🔒 Locked";
+}
+
 module.exports = {
   name: "gym",
   aliases: [],
   category: "Adventure",
-  description: "Challenge a Gym Leader for a badge: `!gym <leader name>` (see `!badges`).",
+  description: "View gym progress (`!gym`) or challenge a leader (`!gym <name>`).",
   async execute(message, args) {
     if (!(await requireRegistered(message))) return;
+
+    // ── No args: show gym progress board ────────────────────────────────
     if (!args.length) {
-      const list = GYM_LEADERS.map((g) => `**${g.id}.** ${g.name} — ${g.badge}`).join("\n");
-      return message.reply(`🏛️ **Gym Leaders**\n${list}\n\nChallenge with \`!gym <name>\`.`);
+      const badges = getBadges(message.author.id);
+
+      const lines = GYM_LEADERS.map((g, i) => {
+        const emoji = typeEmoji(g.type);
+        const status = gymStatus(g, badges, i);
+        return [
+          `## **${g.name}**`,
+          `> **Type:** ${emoji} ${cap(g.type)}`,
+          `> **Level Cap:** \`${g.level}\``,
+          `> **Status:** ${status}`,
+        ].join("\n");
+      }).join("\n\n");
+
+      const header = `# 🏛️ Gym Progress\n\n`;
+      return message.reply(header + lines + `\n\nChallenge a gym with \`!gym <leader name>\`.`);
     }
+
+    // ── Challenge a specific gym ─────────────────────────────────────────
     const gym = findGym(args.join(" "));
     if (!gym) return message.reply("❔ Unknown gym leader. Use `!gym` to see the list.");
 
     const badges = getBadges(message.author.id);
     if (badges.includes(gym.badge)) return message.reply(`🏆 You already hold the **${gym.badge}**!`);
+
+    // Check if gym is locked
+    const gymIndex = GYM_LEADERS.findIndex((g) => g.id === gym.id);
+    if (gymIndex > 0) {
+      const prev = GYM_LEADERS[gymIndex - 1];
+      if (!badges.includes(prev.badge)) {
+        return message.reply(`🔒 **${gym.name}**'s gym is locked! Defeat **${prev.name}** first and earn the **${prev.badge}**.`);
+      }
+    }
 
     const party = getParty(message.author.id);
     if (!party.length) return message.reply("🐾 You need at least one Pokemon in your party to battle!");

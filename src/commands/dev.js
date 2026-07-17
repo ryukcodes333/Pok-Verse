@@ -1,6 +1,8 @@
+// !dev — shows the Developer Panel via DM (owner-only, private by design)
 const { requireOwner } = require("../services/guard");
 
-const DEV_PANEL = `## 👑 **Developer Panel**
+const SECTIONS = [
+  `## 👑 **Developer Panel**
 
 ⚙️ **Bot**
 ┆\`!shutdown\`
@@ -31,9 +33,9 @@ const DEV_PANEL = `## 👑 **Developer Panel**
 ┆\`!unblacklist\`
 ┆\`!banuser\`
 ┆\`!unbanuser\`
-┆\`!resetuser\`
+┆\`!resetuser\``,
 
-────── ⋆⋅☆⋅⋆ ──────
+  `────── ⋆⋅☆⋅⋆ ──────
 
 🐾 **Pokémon**
 ┆\`!givepoke\`
@@ -67,9 +69,9 @@ const DEV_PANEL = `## 👑 **Developer Panel**
 ┆\`!addmoney\`
 ┆\`!takemoney\`
 ┆\`!settokens\`
-┆\`!setgems\`
+┆\`!setgems\``,
 
-────── ⋆⋅☆⋅⋆ ──────
+  `────── ⋆⋅☆⋅⋆ ──────
 
 🌍 **Spawns**
 ┆\`!spawn\`
@@ -103,9 +105,9 @@ const DEV_PANEL = `## 👑 **Developer Panel**
 ┆\`!removebadge\`
 ┆\`!resetbattle\`
 ┆\`!forcewin\`
-┆\`!forcelose\`
+┆\`!forcelose\``,
 
-────── ⋆⋅☆⋅⋆ ──────
+  `────── ⋆⋅☆⋅⋆ ──────
 
 💰 **Economy**
 ┆\`!setcoins\`
@@ -160,15 +162,31 @@ const DEV_PANEL = `## 👑 **Developer Panel**
 ┆\`!resetcooldowns\`
 ┆\`!wipeuser\`
 ┆\`!wipedb\`
-┆\`!godmode\``;
+┆\`!godmode\``,
+];
 
 module.exports = {
   name: "dev",
   aliases: [],
   category: "Owner",
-  description: "Show the Developer Panel (owner only).",
+  description: "Show the Developer Panel via DM (owner only).",
   async execute(message) {
     if (!(await requireOwner(message))) return;
-    await message.reply(DEV_PANEL);
+
+    // Send each section as a separate DM so none exceed Discord's 2000-char limit.
+    // This also keeps the panel private — only the owner sees it.
+    try {
+      const dm = await message.author.createDM();
+      for (const section of SECTIONS) {
+        await dm.send(section);
+      }
+      // Confirm in the channel without revealing any content
+      await message.reply("📬 Developer Panel sent to your DMs!").catch(() => {});
+    } catch {
+      // DMs closed — fall back to channel (still owner-gated)
+      for (const section of SECTIONS) {
+        await message.channel.send(section);
+      }
+    }
   },
 };
